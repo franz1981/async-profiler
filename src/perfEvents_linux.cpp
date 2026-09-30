@@ -182,6 +182,22 @@ static bool hasPerfEventRefreshBug() {
     return strncmp(u.release, "6.16.", 5) == 0 || strncmp(u.release, "6.17.", 5) == 0;
 }
 
+// Since Linux 6.16, PERF_EVENT_IOC_REFRESH stops tracepoint, kprobe and uprobe events after the first sample.
+// See https://github.com/async-profiler/async-profiler/issues/1813
+static bool hasTracepointRefreshBug() {
+    static struct utsname u{};
+    if (u.release[0] == 0 && uname(&u) != 0) {
+        return false;
+    }
+    int major, minor;
+    return sscanf(u.release, "%d.%d", &major, &minor) == 2 && (major > 6 || (major == 6 && minor >= 16));
+}
+
+static bool isTracepointType(__u32 type) {
+    return type == PERF_TYPE_TRACEPOINT || (type >= PERF_TYPE_MAX &&
+           (type == (__u32)findDeviceType("kprobe") || type == (__u32)findDeviceType("uprobe")));
+}
+
 struct FunctionWithCounter {
     const char* name;
     int counter_arg;
@@ -522,14 +538,6 @@ FunctionWithCounter PerfEventType::KNOWN_FUNCTIONS[] = {
 
 char PerfEventType::probe_func[MAX_PROBE_LEN];
 
-// Since Linux 6.17 (commit 18dbcbfabfff), an event that reaches its PERF_EVENT_IOC_REFRESH limit
-// is stopped with pmu->stop(). Tracepoint, kprobe and uprobe events are re-added by perf_trace_add(),
-// which does not clear PERF_HES_STOPPED, so after REFRESH they never fire again.
-static bool isTracepointBased(PerfEventType* event_type) {
-    return event_type == &PerfEventType::AVAILABLE_EVENTS[PerfEventType::IDX_TRACEPOINT] ||
-           event_type == &PerfEventType::AVAILABLE_EVENTS[PerfEventType::IDX_KPROBE] ||
-           event_type == &PerfEventType::AVAILABLE_EVENTS[PerfEventType::IDX_UPROBE];
-}
 
 class RingBuffer {
   private:
@@ -848,7 +856,8 @@ Error PerfEvents::start(Arguments& args) {
     }
     _use_perf_mmap = _kernel_stack || _cstack == CSTACK_DEFAULT || _record_cpu;
 
-    if ((strcmp(_event_type->name, "cpu-clock") == 0 && hasPerfEventRefreshBug()) || isTracepointBased(_event_type)) {
+    if ((strcmp(_event_type->name, "cpu-clock") == 0 && hasPerfEventRefreshBug()) ||
+        (isTracepointType(_event_type->type) && hasTracepointRefreshBug())) {
         Log::debug("Enable workaround for PERF_EVENT_IOC_REFRESH bug");
         _ioc_enable = PERF_EVENT_IOC_ENABLE;   // opt-in for manual enable/disable
     } else {

@@ -5,6 +5,7 @@
 
 package test.kernel;
 
+import one.profiler.test.Assert;
 import one.profiler.test.Output;
 import one.profiler.test.Test;
 import one.profiler.test.TestProcess;
@@ -39,7 +40,8 @@ public class KernelTests {
     public void kprobe(TestProcess p) throws Exception {
         p.profile("-e kprobe:fd_install -d 2 -o collapsed -f %f --fdtransfer", true);
         Output out = p.readFile("%f");
-        assert out.contains("java/io/File.list;.+;fd_install_\\[k]");
+        // Every File.list() call hits fd_install, so there should be far more than one sample per thread
+        Assert.isGreater(out.samples("java/io/File.list;.+;fd_install_\\[k]"), 100);
     }
 
     @Test(mainClass = ListFiles.class, os = {Os.MACOS, Os.WINDOWS})
