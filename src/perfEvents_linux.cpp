@@ -563,11 +563,6 @@ int PerfEvents::createForThread(int tid) {
     attr.config1 = event_type->config1;
     attr.config2 = event_type->config2;
 
-    // Hardware events may not always support zero skid
-    if (attr.type == PERF_TYPE_SOFTWARE) {
-        attr.precise_ip = 2;
-    }
-
     attr.sample_period = _interval;
     attr.sample_type = PERF_SAMPLE_CALLCHAIN;
     attr.disabled = 1;
